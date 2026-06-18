@@ -597,6 +597,22 @@ function ps.getSharedGangRankData(gang, rank, data)
     return gradeData[data] or nil
 end
 
+function ps.getSharedItems()
+    return exports.ox_inventory:Items()
+end
+
+function ps.getItemLabel(item)
+    local itemData = ps.getSharedItems()[item]
+    if not itemData then return item end
+    return itemData.label
+end
+
+function ps.getItemWeight(item)
+    local itemData = ps.getSharedItems()[item]
+    if not itemData then return 0 end
+    return itemData.weight or 0
+end
+
 RegisterNetEvent('ps_lib:server:toggleDuty', function()
     local src = source
     local duty = ps.getJobDuty(src)
