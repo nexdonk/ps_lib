@@ -96,6 +96,10 @@ end
 --- @description Returns the character information for the given source and info key.
 function ps.getCharInfo(source, info)
     local player = ps.getPlayer(source)
+    if not player or not player.PlayerData or not player.PlayerData.charinfo then
+        return nil
+    end
+
     return player.PlayerData.charinfo[info]
 end
 
@@ -105,6 +109,10 @@ end
 --- @usage local jobData = ps.getJob(source)
 function ps.getJob(source)
     local player = ps.getPlayer(source)
+    if not player or not player.PlayerData or not player.PlayerData.job then
+        return nil
+    end
+
     return player.PlayerData.job
 end
 
@@ -114,6 +122,9 @@ end
 --- @usage local jobName = ps.getJobName(source)
 function ps.getJobName(source)
     local player = ps.getPlayer(source)
+    if not player or not player.PlayerData then return nil end
+    if not player.PlayerData.job then return nil end
+
     return player.PlayerData.job.name
 end
 
@@ -123,6 +134,9 @@ end
 --- @description Returns the job type for the given source.
 function ps.getJobType(source)
     local player = ps.getPlayer(source)
+    if not player or not player.PlayerData then return nil end
+    if not player.PlayerData.job then return nil end
+
     return player.PlayerData.job.type
 end
 
@@ -263,7 +277,7 @@ end
 function ps.getJobCount(jobName)
     local count = 0
     for _, player in pairs(ps.getAllPlayers()) do
-        if player.PlayerData.job and player.PlayerData.job.name == jobName and player.PlayerData.job.onduty then
+        if player.job and player.job.name == jobName and ps.getJobDuty(player.source) then
             count = count + 1
         end
     end
@@ -275,11 +289,13 @@ end
 --- @return integer
 --- @description Returns the count of players with a specific job type who are on duty.
 --- @usage local jobTypeCount = ps.getJobTypeCount('leo')
-function ps.getJobTypeCount(jobName)
+function ps.getJobTypeCount(jobType)
     local count = 0
-    for _, player in pairs(ps.getAllPlayers()) do
-        if player.PlayerData.job and player.PlayerData.job.type == jobName and player.PlayerData.job.onduty then
-            count = count + 1
+    for _, playerData in pairs(ps.getAllPlayers()) do
+        if playerData.PlayerData.job.type == jobType then
+            if playerData.PlayerData.job.onduty then
+                count += 1
+            end
         end
     end
     return count
@@ -596,7 +612,6 @@ function ps.getItemWeight(item)
     if not itemData then return 0 end
     return itemData.weight or 0
 end
-
 
 RegisterNetEvent('ps_lib:server:toggleDuty', function()
     local src = source
