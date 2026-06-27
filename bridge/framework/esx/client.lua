@@ -1,8 +1,25 @@
 
+-- Resolve the ESX shared object defensively. Config.lua sets the global `ESX`
+-- during shared-script load, but that can lose a startup race, and on a live
+-- `restart ps_lib` we must re-grab it. Without a valid ESX every getter fails.
+if not ESX then
+    local ok, obj = pcall(function() return exports['es_extended']:getSharedObject() end)
+    if ok and obj then ESX = obj end
+end
+
 local esxJOBCompat = {
     ['police'] = 'leo',
     ['unemployed'] = 'loser'
 }
+
+-- Config-driven job -> type resolver (mirrors the server bridge).
+local function jobToType(jobName)
+    if not jobName then return 'none' end
+    if Config and Config.ESXJobTypes and Config.ESXJobTypes[jobName] then
+        return Config.ESXJobTypes[jobName]
+    end
+    return esxJOBCompat[jobName] or 'none'
+end
 
 
 local esxMetadata = {
@@ -24,6 +41,7 @@ AddEventHandler('onResourceStop', function(resourceName)
 end)
 
 AddEventHandler('esx:playerLoaded', function(playerData)
+    if ESX then ESX.PlayerData = playerData end
     ps.ped = PlayerPedId()
     ps.charinfo = {
         firstname = playerData.firstName,
@@ -49,22 +67,53 @@ AddEventHandler("esx_status:onTick", function(data)
             stress = math.floor(data[i].percent)
         end
     end
-    esxMetadata.health = math.floor((GetEntityHealth(ESX.PlayerData.ped) - 100) / 100 * 100)
-    esxMetadata.armor = GetPedArmour(ESX.PlayerData.ped)
+    local ped = PlayerPedId()
+    esxMetadata.health = math.floor((GetEntityHealth(ped) - 100) / 100 * 100)
+    esxMetadata.armor = GetPedArmour(ped)
     esxMetadata.thirst = thirst
     esxMetadata.hunger = hunger
     esxMetadata.stress = stress
 end)
 
 RegisterNetEvent('esx:setJob', function(job)
+    if not ESX then return end
+    ESX.PlayerData = ESX.PlayerData or {}
     ESX.PlayerData.job = job
+end)
+
+-- Hydrate PlayerData on (re)start. If this bridge loads AFTER the player already
+-- spawned (e.g. a live `restart ps_lib`), esx:playerLoaded never fires again, so
+-- ESX.PlayerData.job would stay nil and crash job detection. Pull it directly.
+CreateThread(function()
+    local tries = 0
+    while ESX and tries < 50 do
+        if ESX.PlayerData and ESX.PlayerData.job then break end
+        local pd = ESX.GetPlayerData and ESX.GetPlayerData() or nil
+        if pd and pd.job then
+            ESX.PlayerData = pd
+            break
+        end
+        tries = tries + 1
+        Wait(200)
+    end
 end)
 
 ---@return: table
 ---@DESCRIPTION: Returns the player's data, including job, gang, and metadata.
 function ps.getPlayerData()
-
-    return ESX.GetPlayerData()
+    -- MDT auth/dispatch consumers (dashboard.lua, dispatch.lua, nui.lua) read
+    -- QB-shaped citizenid + charinfo off this table. ESX only exposes
+    -- identifier/firstName/lastName/sex/dateofbirth, so map them here once so
+    -- every consumer works unchanged. Idempotent and rebuilt each call.
+    local pd = (ESX and ESX.GetPlayerData and ESX.GetPlayerData()) or {}
+    pd.citizenid = pd.identifier
+    pd.charinfo = {
+        firstname = pd.firstName,
+        lastname  = pd.lastName,
+        birthdate = pd.dateofbirth,
+        gender    = pd.sex,
+    }
+    return pd
 end
 
 --- @return: string
@@ -83,9 +132,16 @@ function ps.getMetadata(meta)
         return esxMetadata[meta]
     end
     if meta == 'isdead' then
-        return ESX.PlayerData.dead
+        return (ESX and ESX.PlayerData and ESX.PlayerData.dead) or false
     end
-    return ps.getPlayerData().metadata[meta]
+    local pd = ps.getPlayerData()
+    local md = pd and pd.metadata
+    if md ~= nil then
+        return md[meta]
+    end
+    -- ESX may not sync a metadata table to the client; return a safe shape.
+    if meta == 'licences' then return {} end
+    return nil
 end
 
 --- @PARAM: info: string
@@ -106,7 +162,12 @@ end
 --- @return: string
 --- @DESCRIPTION: Returns the player's full name.
 function ps.getPlayerName()
-    return ESX.getName()
+    local pd = (ESX and ESX.GetPlayerData and ESX.GetPlayerData()) or (ESX and ESX.PlayerData)
+    if pd and (pd.firstName or pd.lastName) then
+        local name = ((pd.firstName or '') .. ' ' .. (pd.lastName or '')):match('^%s*(.-)%s*$')
+        if name and name ~= '' then return name end
+    end
+    return GetPlayerName(PlayerId())
 end
 
 --- @return: number
@@ -128,45 +189,54 @@ end
 --- @return boolean
 --- @example if ps.isDead() then Revive end
 function ps.isDead()
-   return ESX.PlayerData.dead
+   return (ESX and ESX.PlayerData and ESX.PlayerData.dead) or false
 end
 
 --- @return: table
 --- @DESCRIPTION: Returns the player's job information, including name, type, and duty status.
 function ps.getJob()
-    return ESX.PlayerData.job
+    if not ESX then return nil end
+    local pd = (ESX.GetPlayerData and ESX.GetPlayerData()) or ESX.PlayerData
+    return pd and pd.job or nil
 end
 
 --- @RETURN: string
 --- @DESCRIPTION: Returns the name of the player's job.
 --- @example: ps.getJobName()
 function ps.getJobName()
-    return ps.getJob().name
+    local job = ps.getJob()
+    return job and job.name or nil
 end
 
 function ps.getJobDuty()
-    return ps.getJob().onDuty
+    local job = ps.getJob()
+    if not job then return false end
+    if job.onDuty ~= nil then return job.onDuty end
+    return true
 end
 function ps.getJobLabel()
-    return ps.getJob().label
+    local job = ps.getJob()
+    return job and job.label or nil
 end
 --- @RETURN: string
 --- @DESCRIPTION: Returns the type of the player's job.
 --- @example: ps.getJobType()
 function ps.getJobType()
-    return esxJOBCompat[ps.getJob().name] or 'none'
+    local job = ps.getJob()
+    return jobToType(job and job.name)
 end
 
 --- @RETURN: boolean
 --- @DESCRIPTION: Checks if the player's job is a boss job.
 --- @example: if ps.isBoss() then TriggerEvent('qb-bossmenu:client:openMenu') end
 function ps.isBoss()
-    return ps.getJob().grade_name == 'boss'
+    local job = ps.getJob()
+    return job ~= nil and job.grade_name == 'boss'
 end
 
 function ps.defaultDuty()
     local job = ps.getJob()
-    if job.name == 'police' or job.name == 'ambulance' or job.name == 'mechanic' then
+    if job and (job.name == 'police' or job.name == 'ambulance' or job.name == 'mechanic') then
         return false
     end
     return true
@@ -183,6 +253,9 @@ end
 --- @DESCRIPTION: Returns the job data for the specified key.
 function ps.getJobData(data)
     local job = ps.getJob()
+    if not job then return nil end
+    if data == 'type' then return jobToType(job.name) end
+    if data == 'onduty' then return ps.getJobDuty() end
     return job[data]
 end
 
@@ -230,11 +303,12 @@ function ps.getCoords()
 end
 
 function ps.getMoneyData()
-    local money = {
-        cash = ESX.PlayerData.money,
-        bank = ESX.GetAccount('bank').money,
+    local pd = (ESX and ESX.GetPlayerData and ESX.GetPlayerData()) or (ESX and ESX.PlayerData) or {}
+    local bank = ESX and ESX.GetAccount and ESX.GetAccount('bank') or nil
+    return {
+        cash = pd.money or 0,
+        bank = bank and bank.money or 0,
     }
-    return money
 end
 function ps.getMoney(type)
     return ps.getMoneyData()[type] or 0
@@ -252,11 +326,17 @@ function ps.getAllMoney()
     return moneyData
 end
 
+-- Aliases for cross-framework parity (qb/qbx expose these names).
+ps.getName = ps.getPlayerName
+ps.getCid = ps.getIdentifier
+
 exports('getPlayerData', ps.getPlayerData)
 exports('getIdentifier', ps.getIdentifier)
+exports('getCid', ps.getCid)
 exports('getMetadata', ps.getMetadata)
 exports('getCharInfo', ps.getCharInfo)
 exports('getPlayerName', ps.getPlayerName)
+exports('getName', ps.getName)
 exports('getPlayer', ps.getPlayer)
 exports('getVehicleLabel', ps.getVehicleLabel)
 exports('isDead', ps.isDead)
@@ -277,6 +357,9 @@ exports('getMoney', ps.getMoney)
 exports('getAllMoney', ps.getAllMoney)
 
 ps.registerCallback('ps:esx:jobDuty', function(job)
-    ESX.PlayerData.job = job
+    if ESX then
+        ESX.PlayerData = ESX.PlayerData or {}
+        ESX.PlayerData.job = job
+    end
     return true
 end)

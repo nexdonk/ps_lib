@@ -22,6 +22,38 @@ Config.Progressbar = { -- these are DEFAULT values, you can override them in the
 
 Config.Logs = "fivemerr" -- fivemerr or fivemanage
 
+-- ESX job -> job "type" mapping.
+-- ESX jobs have no native `type` field (unlike QBCore/Qbox). Resources such as
+-- ps-mdt gate access by job type ('leo', 'ems', 'doj'). Map your ESX job NAMES
+-- to the appropriate type here so the framework bridge can report a job type.
+-- Anything not listed resolves to 'none'.
+Config.ESXJobTypes = {
+    -- Law Enforcement
+    ['police']      = 'leo',
+    ['lspd']        = 'leo',
+    ['bcso']        = 'leo',
+    ['sahp']        = 'leo',
+    ['sast']        = 'leo',
+    ['sheriff']     = 'leo',
+    ['statepolice'] = 'leo',
+    ['fib']         = 'leo',
+    ['gov']         = 'leo',
+    -- EMS / Fire
+    ['ambulance']   = 'ems',
+    ['ems']         = 'ems',
+    ['lsfd']        = 'ems',
+    ['fire']        = 'ems',
+    ['doctor']      = 'ems',
+    -- Department of Justice
+    ['lawyer']      = 'doj',
+    ['judge']       = 'doj',
+    ['attorney']    = 'doj',
+    -- Misc (kept for backwards compatibility)
+    ['unemployed']  = 'loser',
+    ['mechanic']    = 'mechanic',
+    ['cardealer']   = 'cardealer',
+}
+
 QBCore, ESX, qbx, langs = nil, nil, nil
 
 if GetResourceState('qbx_core') == 'started' then
