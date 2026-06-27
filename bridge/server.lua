@@ -31,13 +31,13 @@ local function loadFramework()
     for key, data in ipairs(frameworkResources) do
         if GetResourceState(data.name) == 'started' then
             loadLib(data.path)
-            inventory = data.name
+            framework = data.name
             ps.success(('Framework resource found: %s'):format(data.name))
             break
         end
     end
-    if not inventory then
-        loadLib('bridge/framework/custom/client.lua')
+    if not framework then
+        loadLib('bridge/framework/custom/server.lua')
         ps.warn('No framework resource found: falling back to custom')
     end
 end
