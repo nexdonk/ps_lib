@@ -10,7 +10,10 @@ description 'Project Sloth Library'
 author 'Project Sloth'
 
 client_scripts {
-    '@qbx_core/modules/playerdata.lua',
+    -- NOTE: qbx PlayerData is resolved at runtime inside the qbx client bridge
+    -- via exports.qbx_core:GetPlayerData(). We intentionally do NOT hard-include
+    -- '@qbx_core/modules/playerdata.lua' here, because that creates a hard
+    -- dependency on qbx_core that breaks ESX / qb-core only servers.
     'startFirst/client/**.lua',
     'modules/**/client/**.lua',
     'bridge/client.lua',

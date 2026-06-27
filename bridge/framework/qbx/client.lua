@@ -1,9 +1,19 @@
+-- Resolve qbx PlayerData via the official qbx_core export so this bridge does
+-- not depend on the global `QBX` table (which required hard-including
+-- @qbx_core/modules/playerdata.lua in the manifest and broke non-qbx servers).
+local function getQbxPlayerData()
+    if exports.qbx_core then
+        return exports.qbx_core:GetPlayerData()
+    end
+    return QBX and QBX.PlayerData or {}
+end
 
 AddEventHandler('QBCore:Client:OnPlayerLoaded', function()
+    local pd = getQbxPlayerData()
     ps.ped = PlayerPedId()
-    ps.charinfo = QBX.PlayerData.charinfo
-    ps.citizenid = QBX.PlayerData.citizenid
-    ps.name = ps.charinfo.firstname .. " " .. ps.charinfo.lastname
+    ps.charinfo = pd.charinfo
+    ps.citizenid = pd.citizenid
+    ps.name = pd.charinfo and (pd.charinfo.firstname .. " " .. pd.charinfo.lastname) or nil
 end)
 
 AddEventHandler('onResourceStop', function(resourceName)
@@ -17,16 +27,17 @@ end)
 AddEventHandler('onResourceStart', function(resourceName)
     if resourceName == GetCurrentResourceName() then
         if PlayerPedId() then
+            local pd = getQbxPlayerData()
             ps.ped = PlayerPedId()
-            ps.charinfo = QBX.PlayerData.charinfo
-            ps.citizenid = QBX.PlayerData.citizenid
-            ps.name = ps.charinfo.firstname .. " " .. ps.charinfo.lastname
+            ps.charinfo = pd.charinfo
+            ps.citizenid = pd.citizenid
+            ps.name = pd.charinfo and (pd.charinfo.firstname .. " " .. pd.charinfo.lastname) or nil
         end
     end
 end)
 
 function ps.getPlayerData()
-    return QBX.PlayerData
+    return getQbxPlayerData()
 end
 
 function ps.getIdentifier()
@@ -129,16 +140,16 @@ function ps.getCoords()
 end
 
 function ps.getMoneyData()
-    local money = QBX.PlayerData.money
+    local money = getQbxPlayerData().money
     return money
 end
 function ps.getMoney(type)
-    local money = QBX.PlayerData.money
+    local money = getQbxPlayerData().money
     return money[type] or 0
 end
 
 function ps.getAllMoney()
-    local money = QBX.PlayerData.money
+    local money = getQbxPlayerData().money
     local moneyData = {}
     for k, v in pairs(money) do
        table.insert(moneyData, {
