@@ -89,6 +89,19 @@ function ps.getMetadata(source, meta)
 end
 
 --- @param source any
+--- @param meta string
+--- @param value any
+--- @return boolean
+--- @description Writes a metadata key on the (online) player. Framework-agnostic
+--- counterpart so consumers never need to call QBCore directly.
+function ps.setMetadata(source, meta, value)
+    local player = ps.getPlayer(source)
+    if not player then return false end
+    player.Functions.SetMetaData(meta, value)
+    return true
+end
+
+--- @param source any
 --- @param info string
 --- @return any
 --- @description Returns the character info for the given source and info key.
@@ -127,6 +140,7 @@ end
 
 function ps.getJobData(source, data)
     local player = ps.getPlayer(source) or ps.getPlayerByIdentifier(source) or ps.getOfflinePlayer(source)
+    if data == nil then return player.PlayerData.job end
     return player.PlayerData.job[data]
 end
 
@@ -465,6 +479,7 @@ exports('getPlayerNameByIdentifier', ps.getPlayerNameByIdentifier)
 exports('getPlayerNameByCid', ps.getPlayerNameByCid)
 exports('getPlayerData', ps.getPlayerData)
 exports('getMetadata', ps.getMetadata)
+exports('setMetadata', ps.setMetadata)
 exports('getCharInfo', ps.getCharInfo)
 exports('getJob', ps.getJob)
 exports('getJobName', ps.getJobName)
