@@ -69,25 +69,37 @@ local function loadVehiclesCompat()
         }
     end
 end
--- These hydrate `jobs`/`vehicles` from the DB at load time. They MUST NOT be
--- allowed to throw: loadLib() executes this whole file inside a pcall, so a raw
--- error here (e.g. the server's ESX schema has no `jobs`/`job_grades`/`vehicles`
--- table) would abort the file before the ps.* getters below are ever defined —
--- producing "attempt to call a nil value (field 'getJobType')" downstream.
--- Guard them so the bridge always finishes loading; job types still resolve via
--- Config.ESXJobTypes and vehicle labels fall back to game model names.
-local okJobs, jobsErr = pcall(loadJobsCompat)
-if not okJobs then
-    ps.warn(('[esx bridge] Could not load jobs from DB (%s) - falling back to Config.ESXJobTypes.'):format(tostring(jobsErr)))
-end
-
-local okVehicles, vehErr = pcall(loadVehiclesCompat)
-if not okVehicles then
-    ps.warn(('[esx bridge] Could not load vehicles from DB (%s) - falling back to game model names.'):format(tostring(vehErr)))
-end
-
+-- Expose the (initially empty) shared tables immediately. They are filled in
+-- place by the background hydration below, so references handed out now stay
+-- valid once the data arrives.
 ps.Shared.Vehicles = vehicles
 ps.Shared.Jobs = jobs
+
+-- Hydrate `jobs`/`vehicles` from the DB in the BACKGROUND.
+--
+-- These call MySQL.*.await, which YIELDS the coroutine. loadLib() runs this whole
+-- file inside that coroutine, so awaiting at load scope would SUSPEND the chunk
+-- right here — before the ps.* getters below (getJobName, getJobType, ...) are
+-- ever defined. A player connecting during the boot window would then hit
+-- ps-mdt's auth callback and call ps.getJobName on a half-loaded bridge,
+-- producing "attempt to call a nil value (field 'getJobName')".
+--
+-- Deferring to a thread lets the chunk finish defining every getter first; the
+-- job/vehicle tables fill in moments later. Until then jobToType() falls back to
+-- Config.ESXJobTypes and vehicle labels fall back to game model names. The pcall
+-- guards also keep a missing ESX schema (no jobs/job_grades/vehicles table) from
+-- spamming raw errors.
+CreateThread(function()
+    local okJobs, jobsErr = pcall(loadJobsCompat)
+    if not okJobs then
+        ps.warn(('[esx bridge] Could not load jobs from DB (%s) - falling back to Config.ESXJobTypes.'):format(tostring(jobsErr)))
+    end
+
+    local okVehicles, vehErr = pcall(loadVehiclesCompat)
+    if not okVehicles then
+        ps.warn(('[esx bridge] Could not load vehicles from DB (%s) - falling back to game model names.'):format(tostring(vehErr)))
+    end
+end)
 
 ps.registerCallback('ps_lib:esx:getVehicleLabel', function(_src, model)
     -- Server callbacks receive (source, ...); the first arg is the invoking
